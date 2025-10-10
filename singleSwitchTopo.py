@@ -1,3 +1,11 @@
+"""
+This experiment is to implement simple
+    single switch,  single  controller, 4 hosts SDN network
+    ping all nodes, understand connectivity and traffic flows 
+
+"""
+
+
 from mininet.topo import Topo
 from mininet.net import Mininet
 from mininet.util import dumpNetConnections, dumpNodeConnections
