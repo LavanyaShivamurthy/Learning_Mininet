@@ -1,4 +1,0 @@
-  File "/tmp/server_dual_ports.py", line 32
-    s_udp.sendto(bACK from UDP, addr)
-                      ^^^^
-SyntaxError: invalid syntax
