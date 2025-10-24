@@ -1,3 +1,30 @@
+
+################################################################################
+date : 24 : Oct: 2025
+
+Running RunCode.sh 
+	it runs: 
+		BaseCode_Mqtt_Collector.py
+		sensor_publisher.py 
+		sensor_subscriber.py
+		sensor_data_infinite.py  
+
+	Collects Logs at:
+		mqtt_capture
+		tcpdump_data  
+		pcap_captures  
+		
+Learning points:
+
+Brokers ip address hsould be  
+	server = net.addHost('server', ip='10.0.0.100/8')
+	BROKER_IP = "10.0.0.100"
+mosquitto.conf file should have  
+		
+		
+		
+################################################################################
+
 summarize **today’s implementation** of an MQTT-based IoT sensor network in **Mininet with SDN**, step by step:
 
 ---

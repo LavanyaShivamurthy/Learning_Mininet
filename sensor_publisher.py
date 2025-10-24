@@ -27,7 +27,7 @@ def log(msg):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG_FILE, "a") as f:
         f.write(f"[{timestamp}] {msg}\n")
-    print(f"[{timestamp}] {msg}")  # Optional stdout
+    print(f"[{timestamp}] {msg}", flush= True)  # Optional stdout
 
 def main():
     client = mqtt.Client()
