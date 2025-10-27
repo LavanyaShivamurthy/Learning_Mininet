@@ -1,4 +1,36 @@
 #!/usr/bin/env python3
+"""
+This code is  with
+
+Topology
+
+## **7. Summary Diagram / Flow**
+
+```
++------------------+         +-----------------+          +----------------+
+|  Emergency Host  |         | Monitoring Host |          |    Server      |
+|  Publisher App   |----+--> |  Publisher App  | --+-->  |  MQTT Broker   |
+|                  |    |    |                 |  |     |  Subscriber    |
++------------------+    |    +-----------------+  |     +----------------+
+                        |                         |
+                        v                         v
+                     +------------------------------+
+                     |            s1 (OVS)          |
+                     | SDN Switch: forwards packets |
+                     +------------------------------+
+                               ^
+                               |
+                           +--------+
+                           |  c0    |
+                           |Controller|
+                           +--------+
+```
+
+
+
+
+"""
+
 from mininet.net import Mininet
 from mininet.node import Controller, OVSSwitch
 from mininet.link import TCLink
