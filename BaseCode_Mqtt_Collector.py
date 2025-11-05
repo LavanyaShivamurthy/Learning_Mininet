@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
 """
-This code is  with
+Three-Switch SDN IoT Topology with MQTT Communication
+------------------------------------------------------
+Architecture Summary:
 
-Topology
-
-## **7. Summary Diagram / Flow**
-
-```
-+------------------+         +-----------------+          +----------------+
-|  Emergency Host  |         | Monitoring Host |          |    Server      |
-|  Publisher App   |----+--> |  Publisher App  | --+-->  |  MQTT Broker   |
-|                  |    |    |                 |  |     |  Subscriber    |
-+------------------+    |    +-----------------+  |     +----------------+
-                        |                         |
-                        v                         v
-                     +------------------------------+
-                     |            s1 (OVS)          |
-                     | SDN Switch: forwards packets |
-                     +------------------------------+
-                               ^
-                               |
-                           +--------+
-                           |  c0    |
-                           |Controller|
-                           +--------+
-```
-
-
-
-
+              +----------------------+
+              |     SDN Controller   |
+              |   (e.g., Ryu/POX)    |
+              +----------+-----------+
+                         |
+                    (OpenFlow)
+                         |
+               +---------+----------+
+               |        S1          |
+               |   (Core Switch)    |
+               +---------+----------+
+                  |             |
+     +------------+             +-------------+
+     |                                          |
++----+----+                                +----+----+
+|   S2    |                                |   S3    |
+| (Access)|                                | (Access)|
++----+----+                                +----+----+
+     |                                          |
+  h2–h7 IoT hosts,                          h8–h11 IoT hosts, broker, Monitor
+     |                                          |
+     +-----------------+------------------------+
+                       |
+                MQTT Broker (10.0.0.2)
+                + Monitor Node (10.0.0.10)
 """
 
 from mininet.net import Mininet
@@ -43,166 +43,162 @@ import subprocess
 
 # ================= Configuration =================
 BROKER_PORT = 1883
-BROKER_IP = "10.0.0.100"
-#BROKER_IP = "127.0.0.1"
+BROKER_IP = "10.0.0.2"
 OUTPUT_DIR = '/home/ictlab7/Documents/Learning_Mininet/pcap_captures'
 OUTPUT_LOG_DIR = '/home/ictlab7/Documents/Learning_Mininet/mqtt_capture'
-MERGE_SWITCH_PCAPS = False  # Set True to enable merged switch PCAPs
+MERGE_SWITCH_PCAPS = False
 
 # =================================================
-# Ensure directories exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_LOG_DIR, exist_ok=True)
 
-# =================================================
-#automate  cleanup  (before creating the network):
+# Cleanup any old Mininet state
 os.system("mn -c")
 os.system("pkill -f tcpdump")
 os.system("pkill -f mosquitto")
-# =================================================
-# Cleanup previous Mininet state
 
+# =================================================
 def start_tcpdump(node, intf):
-    """Start tcpdump on a node interface and return the filename."""
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'{OUTPUT_DIR}/{node.name}_{intf}_{timestamp}.pcap'
     node.cmd(f'tcpdump -i {intf} -w {filename} &')
     info(f'*** Capturing {intf} on {node.name} -> {filename}\n')
     return filename
 
-def start_mqtt_broker(server):
-    """Start MQTT broker on the server host."""
-    info('*** Starting MQTT broker on server (with remote access)\n')
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+def start_mqtt_broker(host):
+    info('*** Starting MQTT broker (Mosquitto)\n')
     conf_file = "/tmp/mosquitto.conf"
-    #conf_file = f"/home/ictlab7/Documents/Learning_Mininet/mosquitto_file/mosquitto_{timestamp}.conf"
-    server.cmd(f"echo 'listener {BROKER_PORT} 0.0.0.0\nallow_anonymous true' > {conf_file}")
-    server.cmd(f"mosquitto -c {conf_file} -v &")
-    time.sleep(4)
-    # Check if broker is running
-    if "mosquitto" in server.cmd(f"netstat -tulnp | grep {BROKER_PORT}"):
-        info(f"✅ MQTT broker is running on {BROKER_IP}:{BROKER_PORT}\n")
-    else:
-        info("❌ Failed to start MQTT broker\n")
+    host.cmd(f"echo 'listener {BROKER_PORT} 0.0.0.0\nallow_anonymous true' > {conf_file}")
+    host.cmd(f"mosquitto -c {conf_file} -v &")
+    time.sleep(3)
+    info(f"✅ MQTT broker started at {BROKER_IP}:{BROKER_PORT}\n")
 
-def start_mqtt_subscriber(server):
-    """Start subscriber inside server host"""
+def start_mqtt_subscriber(monitor):
     log_file = f"{OUTPUT_LOG_DIR}/sensor_subscriber.log"
-    cmd = f'python3 sensor_subscriber.py {BROKER_IP} sensors/# > {log_file} 2>&1 &'
-    server.cmd(cmd)
-    info(f"✅ MQTT subscriber started on server, logging to {log_file}\n")
+    cmd = f'python3 sensor_subscriber.py > {log_file} 2>&1 &'
+    monitor.cmd(cmd)
+    info(f"✅ MQTT subscriber started on Monitor node, logging to {log_file}\n")
 
 def start_mqtt_publisher(host, sensor_name):
-    """Start publisher on a host and log output."""
     log_file = f"{OUTPUT_LOG_DIR}/sensor_publisher_{sensor_name}.log"
     cmd = f'python3 sensor_publisher.py {BROKER_IP} sensors/{sensor_name} {sensor_name} > {log_file} 2>&1 &'
-    host.cmd(cmd)  # <<< THIS LINE WAS MISSING
+    host.cmd(cmd)
     info(f"✅ MQTT publisher started on {host.name} ({sensor_name}), logging to {log_file}\n")
-# ==============================================================
-# Create network
+
 # ==============================================================
 def start_mqtt_network():
     net = Mininet(controller=Controller, switch=OVSSwitch, link=TCLink, autoSetMacs=True)
 
-    # Add controller
+    # Controller
     info('*** Adding controller\n')
     c0 = net.addController('c0')
 
-    # Add hosts
-    info('*** Adding hosts\n')
-    emergency = net.addHost('emergency', ip='10.0.0.10/8')
-    monitoring = net.addHost('monitoring', ip='10.0.0.20/8')
-    server = net.addHost('server', ip='10.0.0.100/8')
-
-    # Add switch
-    info('*** Adding switch\n')
+    # Switches
+    info('*** Adding switches\n')
     s1 = net.addSwitch('s1')
+    s2 = net.addSwitch('s2')
+    s3 = net.addSwitch('s3')
 
-    # Create links
+    # Broker + Monitor (on same node for simplicity)
+    broker = net.addHost('broker', ip='10.0.0.2/8')
+    monitor = net.addHost('monitor', ip='10.0.0.3/8')
+
+    # IoT hosts (sensors)
+    h1 = net.addHost('h1', ip='10.0.0.4/8')
+    h2 = net.addHost('h2', ip='10.0.0.5/8')
+    h3 = net.addHost('h3', ip='10.0.0.6/8')
+    h4 = net.addHost('h4', ip='10.0.0.7/8')
+    h5 = net.addHost('h5', ip='10.0.0.8/8')
+    h6 = net.addHost('h6', ip='10.0.0.9/8')
+    h7 = net.addHost('h7', ip='10.0.0.10/8')
+    h8 = net.addHost('h8', ip='10.0.0.11/8')
+    h9 = net.addHost('h9', ip='10.0.0.12/8')
+    h10 = net.addHost('h10', ip='10.0.0.13/8')
+    h11 = net.addHost('h11', ip='10.0.0.14/8')
+
+    # Links
     info('*** Creating links\n')
-    net.addLink(emergency, s1, bw=10)
-    net.addLink(monitoring, s1, bw=10)
-    net.addLink(server, s1, bw=10)
+    net.addLink(s2, s1, bw=10)
+    net.addLink(s3, s1, bw=10)
 
-    # Start network
+    net.addLink(broker, s3, bw=10)
+    net.addLink(monitor, s3, bw=10)
+
+    net.addLink(h1, s2, bw=10)
+    net.addLink(h2, s2, bw=10)
+
+    net.addLink(h3, s2, bw=10)
+    net.addLink(h4, s2, bw=10)
+    net.addLink(h5, s2, bw=10)
+    net.addLink(h6, s2, bw=10)
+    net.addLink(h7, s2, bw=10)
+
+    net.addLink(h8, s3, bw=10)
+    net.addLink(h9, s3, bw=10)
+    net.addLink(h10, s3, bw=10)
+    net.addLink(h11, s3, bw=10)
+
     info('*** Starting network\n')
     net.start()
-    # ==============================================================
-    # Configure host interfaces
-    # ==============================================================
 
-    for h in [emergency, monitoring, server]:
+    # Bring up interfaces
+    for h in [broker, monitor, h1, h2, h3, h4, h5, h6, h7, h8,h9,h10,h11]:
         for intf in h.intfList():
             if 'lo' not in intf.name:
                 h.cmd(f'ifconfig {intf} up')
-    # ==============================================================
-    # Clean old MQTT logs
-    # ==============================================================
-    for node in [server, emergency, monitoring]:
-        node.cmd('rm -f /tmp/sensor_*.log')
-    # ==============================================================
-    # Start tcpdump on hosts
-    # ==============================================================
-    host_pcaps = {}
-    for h in [emergency, monitoring, server]:
-        for intf in h.intfList():
+
+    """
+    # Start captures
+    info('*** Starting tcpdump captures\n')
+    for node in [broker, monitor, h2, h3, h4, h5, h6, h7, h8,h9,h10,h11]:
+        for intf in node.intfList():
             if 'lo' not in intf.name:
-                host_pcaps[f'{h.name}_{intf}'] = start_tcpdump(h, intf)
-    # ==============================================================
-    # Start tcpdump on switch interfaces
-    # ==============================================================
-    switch_pcaps = []
+                start_tcpdump(node, intf)
+                
+    """
+    info('*** Starting tcpdump captures on main switches\n')
+
+    # Capture from core switch s1 (all flows)
     for intf in s1.intfList():
         if 'lo' not in intf.name:
-            switch_pcaps.append(start_tcpdump(s1, intf))
-    # ==============================================================
-    # Start tcpdump on controller
-    # ==============================================================
-    ctrl_pcap = start_tcpdump(c0, 'any')
+            start_tcpdump(s1, intf)
 
-    # Start MQTT broker
-    start_mqtt_broker(server)
-    # Test connectivity from emergency host
-    test_conn = emergency.cmd(f"nc -zv {BROKER_IP} {BROKER_PORT}")
-    if "succeeded" in test_conn:
-        info("✅ Emergency host can reach the MQTT broker\n")
-    else:
-        info("⚠️ Emergency host cannot reach the broker\n")
-    # ==============================================================
-    # Start MQTT subscriber and publishers
-    # ==============================================================
-    start_mqtt_subscriber(server)
-    time.sleep(2)  # small delay before starting publishers
-    start_mqtt_publisher(emergency, "emergency")
-    start_mqtt_publisher(monitoring, "monitoring")
-    # ==============================================================
-    # Verify connectivity
-    # ==============================================================
+    # Capture from edge switch s2 (sensor side)
+    start_tcpdump(s2, s2.intfList()[0])
+
+    # Capture from edge switch s3 (broker side)
+    start_tcpdump(s3, s3.intfList()[0])
+
+    # Start MQTT system
+    start_mqtt_broker(broker)
+    start_mqtt_subscriber(monitor)
+
+    time.sleep(2)
+    start_mqtt_publisher(h1, "admin_node")
+    start_mqtt_publisher(h2, "admin_node")
+    start_mqtt_publisher(h3, "pulse_oximeter")
+    start_mqtt_publisher(h4, "bp_sensor")
+    start_mqtt_publisher(h5, "emg_sensor")
+    start_mqtt_publisher(h6, "humidity_sensor")
+    start_mqtt_publisher(h7, "airflow_sensor")
+    start_mqtt_publisher(h8, "glucometer")
+    start_mqtt_publisher(h9, "solar_sensor")
+    start_mqtt_publisher(h10, "infusion_pump")
+    start_mqtt_publisher(h11, "ecg_monitor")
+
+    # Connectivity test
     info('*** Verifying connectivity\n')
     net.pingAll()
-    # ==============================================================
-    # Start CLI
-    # ==============================================================
-    info('*** Starting CLI\n')
-    CLI(net)
-    # ==============================================================
-    # Stop tcpdump processes
-    # ==============================================================
-    info('*** Stopping tcpdump\n')
-    for h in [emergency, monitoring, server, s1, c0]:
-        h.cmd('pkill tcpdump')
-    # ==============================================================
-    # Optional merge switch PCAPs
-    # ==============================================================
-    if MERGE_SWITCH_PCAPS and switch_pcaps:
-        merged_filename = f'{OUTPUT_DIR}/{s1.name}_merged_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pcap'
-        subprocess.run(['mergecap', '-w', merged_filename] + switch_pcaps)
-        info(f'*** Merged switch PCAPs -> {merged_filename}\n')
 
+    # CLI for manual testing
+    CLI(net)
+
+    info('*** Stopping network\n')
     net.stop()
 
 
 if __name__ == '__main__':
-    setLogLevel('info')
-    info("\n\n************************Starting Mininet********************************\n")
+    #setLogLevel('critical')
+    setLogLevel('critical')
+    info("\n\n*************** Starting SDN IoT MQTT Topology ***************\n")
     start_mqtt_network()
