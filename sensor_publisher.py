@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+
+#  Code Change V1
+    # 1.  Added Contl+c handler
+    # Working Need to confirm
+
+
+
+
 import paho.mqtt.client as mqtt
 import sys
 import time
@@ -6,7 +14,16 @@ import random
 from datetime import datetime
 import threading
 import logging
+import signal
+stop_event = threading.Event()
 # Logging setup — single shared file for all sensors
+def handle_exit(sig, frame):
+    print("\n[INFO] Ctrl+C received. Stopping publishers*...")
+    stop_event.set()
+
+signal.signal(signal.SIGINT, handle_exit)
+
+
 logging.basicConfig(
     filename="sensors_publisher.log",
     level=logging.INFO,
@@ -96,15 +113,18 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
     try:
         client.connect(broker_ip, broker_port)
         log(f"[Publisher] Connected to {broker_ip}:{broker_port}, topic '{topic}' as {sensor_key} (Class={class_id})")
+        client.loop_start()
+
     except Exception as e:
         log(f"[Publisher] Connection failed for {sensor_key}: {e}")
         return
-
+    sensor_topic = f"sensor/{sensor_key}"
     ADMIN_VALUES = ["sync", "idle", "config", "heartbeat_ok"]
     last_admin_time = time.time()
     ADMIN_INTERVAL = 15.0  # seconds
 
-    while True:
+   # while True:
+    while not stop_event.is_set():
         if "values" in cfg:
             value = random.choice(cfg["values"])
         else:
@@ -113,16 +133,19 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
         payload = f"{sensor_key}:{value}{cfg.get('unit', '')}:Class={class_id}"
 
         try:
-            client.publish(topic, payload)
+            client.publish(sensor_topic, payload, qos=1)
+
             log(f"[Publisher] {sensor_key}: Published {payload}")
         except Exception as e:
             log(f"[Publisher] {sensor_key}: Publish failed: {e}")
 
         # Admin update
         if time.time() - last_admin_time >= ADMIN_INTERVAL:
-            admin_topic = f"admin/{sensor_key}"
+            admin_topic = "admin/heartbeat"
             admin_value = random.choice(ADMIN_VALUES)
-            admin_payload = f"{sensor_key}:{admin_value}:Class=4"
+            admin_payload = f"{admin_value}"
+            client.publish(admin_topic, admin_payload, qos=0)
+
             try:
                 client.publish(admin_topic, admin_payload)
                 log(f"[Publisher] (Admin) {admin_payload}")
@@ -131,6 +154,9 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
                 log(f"[Publisher] {sensor_key}: Admin publish failed: {e}")
 
         time.sleep(cfg["interval"])
+
+    client.loop_stop()
+    client.disconnect()
 
 
 def main():
@@ -145,11 +171,18 @@ def main():
             t = threading.Thread(
                 target=publish_sensor,
                 args=(sensor_name, topic, broker_ip, BROKER_PORT),
-                daemon=True,
+                daemon=False,
             )
             t.start()
-        while True:
-            time.sleep(1)
+        #while True:
+        try:
+            while not stop_event.is_set():
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            stop_event.set()
+
+
+
     else:
         # Run single sensor
         sensor_key = ALIASES.get(sensor_arg, sensor_arg)

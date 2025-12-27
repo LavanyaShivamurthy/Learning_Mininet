@@ -39,8 +39,13 @@ from mininet.cli import CLI
 from datetime import datetime
 import os
 import time
-import subprocess
+
 import sys
+import signal
+
+
+
+
 sys.stdout.reconfigure(line_buffering=True) #This forces real-time printing, so your output lines won’t appear indented or delayed.
 
 # ================= Configuration =================
@@ -61,6 +66,8 @@ os.system("pkill -f tcpdump")
 os.system("pkill -f mosquitto")
 """
 # =================================================
+
+# =================================================
 def start_tcpdump(node, intf):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'{OUTPUT_DIR}/{node.name}_{intf}_{timestamp}.pcap'
@@ -69,36 +76,36 @@ def start_tcpdump(node, intf):
     return filename
 
 def start_mqtt_broker(host):
-    info('***Starting MQTT broker (Mosquitto)\n')
+    info('***Starting MQTT broker (Mosquitto)')
     conf_file = "/tmp/mosquitto.conf"
     host.cmd(f"echo 'listener {BROKER_PORT} 0.0.0.0\nallow_anonymous true' > {conf_file}")
     host.cmd(f"mosquitto -c {conf_file} -v &")
     time.sleep(3)
-    info(f"✅ MQTT broker started at {BROKER_IP}:{BROKER_PORT}\n")
+    info(f"✅ MQTT broker started at {BROKER_IP}:{BROKER_PORT}")
 
 def start_mqtt_subscriber(monitor):
     log_file = f"{OUTPUT_LOG_DIR}/sensor_subscriber.log"
     cmd = f'python3 sensor_subscriber.py > {log_file} 2>&1 &'
     monitor.cmd(cmd)
-    info(f"✅ MQTT subscriber started on Monitor node, logging to {log_file}\n")
+    info(f"✅ MQTT subscriber started on Monitor node, logging to {log_file}")
 
 def start_mqtt_publisher(host, sensor_name):
     log_file = f"{OUTPUT_LOG_DIR}/sensor_publisher_{sensor_name}.log"
     #cmd = f'python3 sensor_publisher.py {BROKER_IP} sensors/{sensor_name} {sensor_name} > {log_file} 2>&1 &'
     cmd = f'python3 sensor_publisher.py {BROKER_IP} sensors all'
     host.cmd(cmd)
-    info(f"✅ MQTT publisher started on {host.name} ({sensor_name}), logging to {log_file}\n")
+    info(f"✅ MQTT publisher started on {host.name} ({sensor_name}), logging to {log_file}")
 
 # ==============================================================
 def start_mqtt_network():
     net = Mininet(controller=Controller, switch=OVSSwitch, link=TCLink, autoSetMacs=True)
 
     # Controller
-    info('*** Adding controller\n')
+    info('*** Adding controller****')
     c0 = net.addController('c0')
 
     # Switches
-    info('*** Adding switches\n')
+    info('\n*** Adding switches*****')
     s1 = net.addSwitch('s1')
     s2 = net.addSwitch('s2')
     s3 = net.addSwitch('s3')
@@ -124,7 +131,7 @@ def start_mqtt_network():
     h14 = net.addHost('h14', ip='10.0.0.14/8')
 
     # Links
-    info('*** Creating links\n')
+    info('*** Creating links')
     net.addLink(s2, s1, bw=10)
     net.addLink(s3, s1, bw=10)
 
@@ -147,7 +154,7 @@ def start_mqtt_network():
     net.addLink(h12, s3, bw=10)
     net.addLink(h13, s3, bw=10)
     net.addLink(h14, s3, bw=10)
-    info('*** Starting network\n')
+    info('*** Starting network')
     net.start()
     # Bring up interfaces
     for h in [broker, monitor, h1, h2, h3, h4, h5, h6, h7, h8,h9,h10,h11]:
@@ -157,14 +164,14 @@ def start_mqtt_network():
 
     """
     # Start captures
-    info('*** Starting tcpdump captures\n')
+    info('*** Starting tcpdump captures')
     for node in [broker, monitor, h2, h3, h4, h5, h6, h7, h8,h9,h10,h11]:
         for intf in node.intfList():
             if 'lo' not in intf.name:
                 start_tcpdump(node, intf)
                 
     """
-    info('*** Starting tcpdump captures on main switches\n')
+    info('\n*** Starting tcpdump captures on main switches')
 
     # Capture from core switch s1 (all flows)
     for intf in s1.intfList():
@@ -225,14 +232,14 @@ def start_mqtt_network():
     # - This ensures you have all 4 classes represented in network traffic.
 
     # Connectivity test
-    info('*** Verifying connectivity')
+    info('\n*** Verifying connectivity')
     net.pingAll()
-    info("*** Running automated test and then shutting down...\n")
+    info("\n*** Running automated test and then shutting down...")
     time.sleep(30)  # Allow MQTT traffic to flow for 10s
 
-    info("*** Stopping network")
+    info("\n*** Stopping network")
     net.stop()
-    info("*** Mininet simulation ended cleanly.")
+    info("\n*** Mininet simulation ended cleanly.")
 
     # CLI for manual testing
     #CLI(net)
@@ -242,5 +249,5 @@ def start_mqtt_network():
 if __name__ == '__main__':
     #setLogLevel('critical')
     setLogLevel('info')
-    info("*************** Starting SDN IoT MQTT Topology ***************")
+    info("\n*************** Starting SDN IoT MQTT Topology ***************")
     start_mqtt_network()
