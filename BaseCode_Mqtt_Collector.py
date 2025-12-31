@@ -51,10 +51,10 @@ sys.stdout.reconfigure(line_buffering=True) #This forces real-time printing, so 
 # ================= Configuration =================
 BROKER_PORT = 1883
 BROKER_IP = "10.0.0.2"
-OUTPUT_DIR = '/home/ictlab7/Documents/Learning_Mininet/pcap_captures'
+OUTPUT_DIR = '/home/ictlab7/Documents/Learning_Mininet/PcapForExpt'
 OUTPUT_LOG_DIR = '/home/ictlab7/Documents/Learning_Mininet/mqtt_capture'
 MERGE_SWITCH_PCAPS = False
-
+EXPERIMENT_SEED = 2025
 # =================================================
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_LOG_DIR, exist_ok=True)
@@ -70,7 +70,7 @@ os.system("pkill -f mosquitto")
 # =================================================
 def start_tcpdump(node, intf):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'{OUTPUT_DIR}/{node.name}_{intf}_{timestamp}.pcap'
+    filename = f'{OUTPUT_DIR}/{node.name}_{intf}_{EXPERIMENT_SEED}_{timestamp}.pcap'
     node.cmd(f'tcpdump -i {intf} -w {filename} &')
     info(f'*** Capturing {intf} on {node.name} -> {filename}\n')
     return filename
@@ -101,7 +101,7 @@ def start_mqtt_network():
     net = Mininet(controller=Controller, switch=OVSSwitch, link=TCLink, autoSetMacs=True)
 
     # Controller
-    info('*** Adding controller****')
+    info('\n*** Adding controller****')
     c0 = net.addController('c0')
 
     # Switches
@@ -131,7 +131,7 @@ def start_mqtt_network():
     h14 = net.addHost('h14', ip='10.0.0.14/8')
 
     # Links
-    info('*** Creating links')
+    info('\n*** Creating links')
     net.addLink(s2, s1, bw=10)
     net.addLink(s3, s1, bw=10)
 
@@ -154,7 +154,7 @@ def start_mqtt_network():
     net.addLink(h12, s3, bw=10)
     net.addLink(h13, s3, bw=10)
     net.addLink(h14, s3, bw=10)
-    info('*** Starting network')
+    info('\n*** Starting network')
     net.start()
     # Bring up interfaces
     for h in [broker, monitor, h1, h2, h3, h4, h5, h6, h7, h8,h9,h10,h11]:
@@ -189,19 +189,6 @@ def start_mqtt_network():
     start_mqtt_subscriber(monitor)
 
     time.sleep(2)
-    """
-    start_mqtt_publisher(h1, "admin_node")
-    start_mqtt_publisher(h2, "admin_node")
-    start_mqtt_publisher(h3, "pulse_oximeter")
-    start_mqtt_publisher(h4, "bp_sensor")
-    start_mqtt_publisher(h5, "emg_sensor")
-    start_mqtt_publisher(h6, "humidity_sensor")
-    start_mqtt_publisher(h7, "airflow_sensor")
-    start_mqtt_publisher(h8, "glucometer")
-    start_mqtt_publisher(h9, "solar_sensor")
-    start_mqtt_publisher(h10, "infusion_pump")
-    start_mqtt_publisher(h11, "ecg_monitor")
-    """
     # === IoT Sensor Class Mapping (14 hosts, realistic categories) ===
 
     # Class 1 – Emergency & Important

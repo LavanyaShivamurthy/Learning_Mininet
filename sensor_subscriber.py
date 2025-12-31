@@ -15,20 +15,20 @@ def log(msg):
     print(f"[{timestamp}] {msg}", flush=True)
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
-    log(f"[Subscriber] Connected to broker {BROKER_IP}:{BROKER_PORT} with result code {reason_code}")
+    log(f"[Subscriber] Connected to broker {BROKER_IP}:{BROKER_PORT} with result code {reason_code}\n")
     client.subscribe(TOPIC)
-    log(f"[Subscriber] Subscribed to topic pattern: {TOPIC}")
+    log(f"[Subscriber] Subscribed to topic pattern: {TOPIC}\n")
 
 def on_message(client, userdata, message):
     payload = message.payload.decode()
     topic = message.topic
-    log(f"[Subscriber] Received: {payload} on topic {topic}")
+    log(f"[Subscriber] Received: {payload} on topic {topic}\n")
 
 if __name__ == "__main__":
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
     client.on_message = on_message
 
-    log(f"[Subscriber] Connecting to MQTT broker at {BROKER_IP}:{BROKER_PORT} ...")
+    log(f"[Subscriber] Connecting to MQTT broker at {BROKER_IP}:{BROKER_PORT} ...\n")
     client.connect(BROKER_IP, BROKER_PORT)
     client.loop_forever()

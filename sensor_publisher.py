@@ -6,7 +6,7 @@
 
 
 
-
+from logging.handlers import TimedRotatingFileHandler
 import paho.mqtt.client as mqtt
 import sys
 import time
@@ -15,6 +15,13 @@ from datetime import datetime
 import threading
 import logging
 import signal
+import hashlib
+# ============================================================
+# Reproducibility: Random Seed Control
+# ============================================================
+EXPERIMENT_SEED = 2025
+random.seed(EXPERIMENT_SEED)
+
 stop_event = threading.Event()
 # Logging setup — single shared file for all sensors
 def handle_exit(sig, frame):
@@ -22,14 +29,25 @@ def handle_exit(sig, frame):
     stop_event.set()
 
 signal.signal(signal.SIGINT, handle_exit)
-
-
+"""
 logging.basicConfig(
     filename="sensors_publisher.log",
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
+"""
+handler = TimedRotatingFileHandler(
+    "sensors_publisher.log",
+    when="H",
+    interval=1,
+    backupCount=48
+)
 
+logging.basicConfig(
+    handlers=[handler],
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
 # Usage:
 #   python3 sensor_publisher.py <BROKER_IP> <TOPIC> <SENSOR_NAME>
@@ -110,6 +128,9 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
     cfg = SENSOR_CONFIG[sensor_key]
     class_id = cfg["class"]
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    # Deterministic per-sensor seed
+    sensor_seed = EXPERIMENT_SEED + hash(sensor_key) % 10000
+    rng = random.Random(sensor_seed)
     try:
         client.connect(broker_ip, broker_port)
         log(f"[Publisher] Connected to {broker_ip}:{broker_port}, topic '{topic}' as {sensor_key} (Class={class_id})")
@@ -118,6 +139,12 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
     except Exception as e:
         log(f"[Publisher] Connection failed for {sensor_key}: {e}")
         return
+    # Deterministic per-sensor seed
+    #ECG always generates same pattern in every run
+    # Smoke sensor always repeats its pattern
+    #
+    #sensor_seed = BASE_SEED + int(hashlib.md5(sensor_key.encode()).hexdigest(), 16) % 10000
+    rng.seed(sensor_seed)
     sensor_topic = f"sensor/{sensor_key}"
     ADMIN_VALUES = ["sync", "idle", "config", "heartbeat_ok"]
     last_admin_time = time.time()
@@ -126,9 +153,9 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
    # while True:
     while not stop_event.is_set():
         if "values" in cfg:
-            value = random.choice(cfg["values"])
+            value = rng.choice(cfg["values"])
         else:
-            value = round(random.uniform(cfg["min"], cfg["max"]), 2)
+            value = round(rng.uniform(cfg["min"], cfg["max"]), 2)
 
         payload = f"{sensor_key}:{value}{cfg.get('unit', '')}:Class={class_id}"
 
@@ -142,7 +169,7 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
         # Admin update
         if time.time() - last_admin_time >= ADMIN_INTERVAL:
             admin_topic = "admin/heartbeat"
-            admin_value = random.choice(ADMIN_VALUES)
+            admin_value = rng.choice(ADMIN_VALUES)
             admin_payload = f"{admin_value}"
             client.publish(admin_topic, admin_payload, qos=0)
 
@@ -153,6 +180,9 @@ def publish_sensor(sensor_key, topic, broker_ip, broker_port):
             except Exception as e:
                 log(f"[Publisher] {sensor_key}: Admin publish failed: {e}")
 
+        log(
+            f"[SeedConfig] Sensor={sensor_key}, Seed={sensor_seed}"
+        )
         time.sleep(cfg["interval"])
 
     client.loop_stop()
