@@ -1,31 +1,35 @@
-#!/bin/bash
-
 # =====================================================
 # FULL PCAP EXTRACTION + MQTT VALIDATION
-# NO LABELING – ALL PACKETS INCLUDED
+# LOCAL → VALIDATE → APPEND
 # =====================================================
 
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <pcap_file>"
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <pcap_file> <experiment_seed>"
     exit 1
 fi
 
 PCAP="$1"
+EXPERIMENT_SEED="$2"
+
 OUT_DIR="csv_output"
-CSV_FILE="$OUT_DIR/all_packets_extracted.csv"
+GLOBAL_CSV="$OUT_DIR/all_packets_extracted.csv"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOCAL_CSV="$OUT_DIR/extract_${EXPERIMENT_SEED}_${TIMESTAMP}.csv"
 
 mkdir -p "$OUT_DIR"
 
 echo "=============================================="
 echo " FULL PCAP EXTRACTION & MQTT VALIDATION"
-echo " PCAP: $PCAP"
+echo " PCAP      : $PCAP"
+echo " SEED      : $EXPERIMENT_SEED"
+echo " LOCAL CSV : $LOCAL_CSV"
 echo "=============================================="
 echo
 
 # -----------------------------------------------------
-# 1. EXTRACT ALL PACKETS (MQTT FIELDS OPTIONAL)
+# 1. EXTRACT ALL PACKETS → LOCAL CSV ONLY
 # -----------------------------------------------------
-echo "[1/6] Extracting ALL packets to CSV..."
+echo "[1/6] Extracting ALL packets to LOCAL CSV..."
 
 tshark -r "$PCAP" \
   -T fields \
@@ -49,83 +53,106 @@ tshark -r "$PCAP" \
   -E separator=, \
   -E quote=d \
   -E occurrence=f \
-  > "$CSV_FILE"
+  > "$LOCAL_CSV"
 
-echo "✔ CSV created: $CSV_FILE"
-echo "Total rows:"
-wc -l "$CSV_FILE"
+echo "✔ Local CSV created: $LOCAL_CSV"
+wc -l "$LOCAL_CSV"
 echo
 
 # -----------------------------------------------------
-# 2. MQTT TOPIC PRESENCE & CORRECTNESS
+# 2. MQTT TOPIC PRESENCE & CORRECTNESS (LOCAL)
 # -----------------------------------------------------
-echo "[2/6] MQTT TOPIC DISTRIBUTION"
-echo "-----------------------------"
+echo "[2/6] MQTT TOPIC DISTRIBUTION (LOCAL)"
+echo "------------------------------------"
 
-cut -d',' -f13 "$CSV_FILE" | tail -n +2 | grep -v '^$' | sort | uniq -c
+cut -d',' -f13 "$LOCAL_CSV" | tail -n +2 | grep -v '^$' | sort | uniq -c
 echo
 
 echo "Topic hierarchy depth:"
-cut -d',' -f13 "$CSV_FILE" | tail -n +2 | grep -v '^$' | awk -F'/' '{print NF}' | sort | uniq -c
+cut -d',' -f13 "$LOCAL_CSV" | tail -n +2 | grep -v '^$' | awk -F'/' '{print NF}' | sort | uniq -c
 echo
 
 # -----------------------------------------------------
-# 3. MQTT QoS DISTRIBUTION
+# 3. MQTT QoS DISTRIBUTION (LOCAL)
 # -----------------------------------------------------
-echo "[3/6] MQTT QoS DISTRIBUTION"
-echo "--------------------------"
+echo "[3/6] MQTT QoS DISTRIBUTION (LOCAL)"
+echo "----------------------------------"
 
-cut -d',' -f14 "$CSV_FILE" | tail -n +2 | grep -v '^$' | sort | uniq -c
+cut -d',' -f14 "$LOCAL_CSV" | tail -n +2 | grep -v '^$' | sort | uniq -c
 echo
 
 # -----------------------------------------------------
-# 4. ADMIN vs SENSOR TRAFFIC CHECK
+# 4. ADMIN vs SENSOR TRAFFIC (LOCAL)
 # -----------------------------------------------------
-echo "[4/6] ADMIN vs SENSOR TRAFFIC"
-echo "------------------------------"
+echo "[4/6] ADMIN vs SENSOR TRAFFIC (LOCAL)"
+echo "------------------------------------"
 
 echo "Admin topics:"
-grep ",admin/" "$CSV_FILE" | cut -d',' -f13 | sort | uniq -c
+grep ",admin/" "$LOCAL_CSV" | cut -d',' -f13 | sort | uniq -c
 echo
 
 echo "Sensor topics:"
-grep ",sensors/" "$CSV_FILE" | cut -d',' -f13 | sort | uniq -c
+grep ",sensor/" "$LOCAL_CSV" | cut -d',' -f13 | sort | uniq -c
 echo
 
 # -----------------------------------------------------
-# 5. PAYLOAD SANITY (NO LABEL LEAKAGE)
+# 5. PAYLOAD SANITY CHECK (LOCAL)
 # -----------------------------------------------------
-echo "[5/6] PAYLOAD SANITY CHECK"
-echo "--------------------------"
+echo "[5/6] PAYLOAD SANITY CHECK (LOCAL)"
+echo "---------------------------------"
 
-if grep -Ei "class=|emergency|important" "$CSV_FILE" > /dev/null; then
+if grep -Ei "class=|emergency|important" "$LOCAL_CSV" > /dev/null; then
     echo "✖ WARNING: Label-like text found in payload"
-    grep -Ei "class=|emergency|important" "$CSV_FILE" | head
+    grep -Ei "class=|emergency|important" "$LOCAL_CSV" | head
 else
     echo "✔ OK: No labels embedded in payload"
 fi
 echo
 
 # -----------------------------------------------------
-# 6. INTER-ARRIVAL TIME ANALYSIS (frame.time_delta)
+# 6. INTER-ARRIVAL TIME (LOCAL)
 # -----------------------------------------------------
 echo "[6/6] INTER-ARRIVAL TIME (AVG PER TOPIC)"
-echo "----------------------------------------"
+echo "---------------------------------------"
 
 awk -F',' '
 NR>1 && $13!="" {
-    topic=$13
-    delta=$3
-    sum[topic]+=delta
-    count[topic]++
+    topic = $13
+    time  = $2   # frame.time_epoch
+
+    if (prev_time[topic] != "") {
+        delta = time - prev_time[topic]
+        sum[topic] += delta
+        count[topic]++
+    }
+
+    prev_time[topic] = time
 }
 END {
     for (t in sum)
         printf "%-35s %.4f sec\n", t, sum[t]/count[t]
 }' "$CSV_FILE"
-echo
 
+
+
+
+# -----------------------------------------------------
+# 7. APPEND LOCAL → GLOBAL (SAFE)
+# -----------------------------------------------------
+echo "[FINAL] Appending LOCAL CSV to GLOBAL CSV..."
+
+if [ ! -f "$GLOBAL_CSV" ]; then
+    cp "$LOCAL_CSV" "$GLOBAL_CSV"
+else
+    tail -n +2 "$LOCAL_CSV" >> "$GLOBAL_CSV"
+fi
+
+echo "✔ Appended to: $GLOBAL_CSV"
+echo "Total GLOBAL rows:"
+wc -l "$GLOBAL_CSV"
+
+echo
 echo "=============================================="
-echo " EXTRACTION & VALIDATION COMPLETE"
+echo " EXTRACTION, VALIDATION & APPEND COMPLETE"
 echo "=============================================="
 
