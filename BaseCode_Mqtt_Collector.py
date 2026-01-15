@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+ Adding Senario2 code
+ Ping and Ping burst
+
+"""
+
+
+"""
 Three-Switch SDN IoT Topology with MQTT Communication
 ------------------------------------------------------
 Architecture Summary:
@@ -41,10 +48,9 @@ import os
 import time
 
 import sys
+import random
+import threading
 import signal
-
-
-
 
 sys.stdout.reconfigure(line_buffering=True) #This forces real-time printing, so your output lines won’t appear indented or delayed.
 
@@ -54,7 +60,7 @@ BROKER_IP = "10.0.0.2"
 OUTPUT_DIR = '/home/ictlab7/Documents/Learning_Mininet/PcapForExpt'
 OUTPUT_LOG_DIR = '/home/ictlab7/Documents/Learning_Mininet/mqtt_capture'
 MERGE_SWITCH_PCAPS = False
-EXPERIMENT_SEED = 2025
+EXPERIMENT_SEED = 2029
 # =================================================
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_LOG_DIR, exist_ok=True)
@@ -66,8 +72,80 @@ os.system("pkill -f tcpdump")
 os.system("pkill -f mosquitto")
 """
 # =================================================
+"""
+🟢 Scenario S2: IoT + Monitoring Traffic
+Aspect	            Value                   	            Purpose
+MQTT traffic          ✔     Measure baseline latency & jitter
+iperf background     ❌      Validate emergency QoS without congestion
+ping monitoring	     ✔      Lightweight realism
+Emergency events	Rare    ping-only does not distort ML features much.
+iperf background	❌
+Congestion	      Minimal
+"""
+# =================================================
+
+
+
+def start_ping_monitor(monitor, target_ip):
+    log_file = f"{OUTPUT_LOG_DIR}/monitor_ping.log"
+    cmd = f"ping {target_ip} > {log_file} 2>&1 &"
+    monitor.cmd(cmd)
+    info(f"📡 Ping monitoring started (monitor → {target_ip}), log: {log_file}\n")
+
+def emergency_ping_bursts(host, target_ip, duration=120, prob=0.03):
+    """
+    Runs in background:
+    For 'duration' seconds, occasionally triggers a short high-rate ping burst.
+    prob = probability per second of an emergency event.
+    """
+    def runner():
+        for _ in range(duration):
+            if random.random() < prob:
+                info("🚨 Emergency event triggered!\n")
+                host.popen(
+                    ["ping", "-c", "20", "-i", "0.05", target_ip],
+                    stdout=open("/tmp/emergency_ping.log", "w"),
+                    stderr=open("/tmp/emergency_ping.err", "w")
+                )
+
+            time.sleep(1)
+
+    t = threading.Thread(target=runner, daemon=True)
+    t.start()
 
 # =================================================
+# ================= Scenario S2 End ===============
+# =================================================
+
+# =================================================
+# ================= Scenario S3 Start =============
+# ================================================
+
+"""
+def start_iperf_server(host):
+    host.cmd("iperf -s -u -D")
+    info(f"📡 iperf UDP server started on {host.name}\n")
+
+def start_moderate_iperf_background(src, dst_ip, rate="2M"):
+    
+    #Moderate background UDP load.
+    #rate = 1–3 Mbps is ideal for 'partial congestion' on 10 Mbps links.
+    
+    cmd = f"iperf -u -c {dst_ip} -b {rate} -t 600 > /tmp/iperf_bg.log 2>&1 &"
+    src.cmd(cmd)
+    info(f"📶 Moderate iperf background started: {src.name} → {dst_ip} @ {rate}\n")
+"""
+# =================================================
+# ================= Scenario S3 End ===============
+# =================================================
+
+
+
+
+
+
+
+
 def start_tcpdump(node, intf):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'{OUTPUT_DIR}/{node.name}_{intf}_{EXPERIMENT_SEED}_{timestamp}.pcap'
@@ -92,9 +170,12 @@ def start_mqtt_subscriber(monitor):
 def start_mqtt_publisher(host, sensor_name):
     log_file = f"{OUTPUT_LOG_DIR}/sensor_publisher_{sensor_name}.log"
     #cmd = f'python3 sensor_publisher.py {BROKER_IP} sensors/{sensor_name} {sensor_name} > {log_file} 2>&1 &'
-    cmd = f'python3 sensor_publisher.py {BROKER_IP} sensors all'
-    host.cmd(cmd)
-    info(f"✅ MQTT publisher started on {host.name} ({sensor_name}), logging to {log_file}")
+    host.popen(
+        ["python3", "sensor_publisher.py", BROKER_IP, "sensors", "all"],
+        stdout=open(log_file, "w"),
+        stderr=open(log_file.replace(".log", ".err"), "w")
+    )
+    info(f"✅ MQTT publisher started on {host.name} ({sensor_name}), logging to {log_file}\n")
 
 # ==============================================================
 def start_mqtt_network():
@@ -191,6 +272,39 @@ def start_mqtt_network():
     time.sleep(2)
     # === IoT Sensor Class Mapping (14 hosts, realistic categories) ===
 
+    # === Scenario S2 Additions  start ===
+    # Continuous monitoring (baseline latency & jitter)
+    #start_ping_monitor(monitor, BROKER_IP)
+    # Rare emergency bursts from a critical sensor (e.g., ECG node h1)
+    #emergency_ping_bursts(h1, BROKER_IP, duration=120, prob=0.05)
+    # === Scenario S2 Additions  End ===
+
+    # ================= Scenario S3 =================
+    # Continuous monitoring
+    start_ping_monitor(monitor, BROKER_IP)
+
+    # Moderate emergency bursts (more frequent than S2)
+    emergency_ping_bursts(h1, BROKER_IP, duration=180, prob=0.10)
+
+    # Start iperf server on broker
+    start_iperf_server(broker)
+
+    # Moderate background load from a non-critical node
+    # This creates partial congestion on S3–S1
+    start_moderate_iperf_background(h12, BROKER_IP, rate="2M")
+
+    # inside helper:
+    # -t 600 instead of -t 0
+
+    # === Scenario S3  End ===================
+
+
+
+
+
+
+
+
     # Class 1 – Emergency & Important
     start_mqtt_publisher(h1, "ecg_monitor")  # continuous cardiac data
     start_mqtt_publisher(h2, "pulse_oximeter")  # blood oxygen emergency
@@ -221,12 +335,25 @@ def start_mqtt_network():
     # Connectivity test
     info('\n*** Verifying connectivity')
     net.pingAll()
-    info("\n*** Running automated test and then shutting down...")
-    time.sleep(30)  # Allow MQTT traffic to flow for 10s
+    info("\n*** Network is running. Press Ctrl+C to stop.")
 
-    info("\n*** Stopping network")
-    net.stop()
-    info("\n*** Mininet simulation ended cleanly.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+          info("\n*** Caught Ctrl+C, shutting down...\n")
+    finally:
+
+        info("\n*** Stopping background processes...\n")
+        os.system("pkill -f iperf")
+        os.system("pkill -f mosquitto")
+        os.system("pkill -f tcpdump")
+        os.system("pkill -f sensor_publisher.py")
+        os.system("pkill -f ping")
+
+        info("\n*** Stopping network")
+        net.stop()
+        info("\n*** Mininet simulation ended cleanly.")
 
     # CLI for manual testing
     #CLI(net)
